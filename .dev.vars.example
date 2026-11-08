@@ -1,0 +1,4 @@
+# Optional local development only. Use Wrangler secrets for deployed credentials.
+ADMIN_TOKEN=local-development-only-change-me
+# GITHUB_TOKEN=
+# DOWNLOAD_TOKEN=

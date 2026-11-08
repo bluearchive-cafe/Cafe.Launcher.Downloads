@@ -1,0 +1,56 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "cafe-launcher-downloads",
+  "account_id": "c9a3099518fcad3221930ff67b9f6315",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-04",
+  "workers_dev": true,
+  "routes": [
+    {
+      "pattern": "download.cafe-launcher.saibamidori.com",
+      "custom_domain": true
+    }
+  ],
+  "upload_source_maps": true,
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "invocation_logs": false,
+      "head_sampling_rate": 1
+    }
+  },
+  "r2_buckets": [
+    {
+      "binding": "RELEASES",
+      "bucket_name": "cafe-launcher-releases"
+    }
+  ],
+  "ratelimits": [
+    {
+      "name": "DOWNLOAD_LIMITER",
+      "namespace_id": "178110801",
+      "simple": {
+        "limit": 120,
+        "period": 60
+      }
+    }
+  ],
+  "triggers": {
+    "crons": [
+      "*/10 * * * *"
+    ]
+  },
+  "vars": {
+    "SYNC_RELEASE_COUNT": "3",
+    "SYNC_ASSET_LIMIT": "2"
+  },
+  "d1_databases": [
+    {
+      "migrations_dir": "migrations",
+      "database_name": "cafe-launcher-downloads-stats",
+      "binding": "STATS",
+      "database_id": "f72c80e0-7153-4cba-b631-384ab716b011"
+    }
+  ]
+}
