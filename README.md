@@ -23,6 +23,7 @@
 | `/health` | GET / HEAD | 进程健康检查，不表示版本已同步 |
 | `/`、`/releases` | GET / HEAD | 仅列出完成校验的镜像版本，下载 URL 为相对路径 |
 | `/downloads/<tag>/<asset-name>` | GET / HEAD | 下载就绪文件，支持单段 Range、ETag、If-Range、条件请求 |
+| `/admin` | GET / HEAD | 管理面板页面，只含界面不含凭据；页面内输入 ADMIN_TOKEN 后同源调用下三个接口 |
 | `/admin/status` | GET / HEAD | 查看最后一次同步状态，需要管理员 Bearer 令牌 |
 | `/admin/stats` | GET / HEAD | 查询近 30 个 UTC 自然日的聚合统计，需要管理员 Bearer 令牌 |
 | `/admin/sync` | POST | 等待一轮有界同步完成，需要管理员 Bearer 令牌 |
@@ -49,7 +50,7 @@ Workers Observability 中启用结构化日志，head sampling 为 1，关闭自
 
 统计保存到独立 D1 数据库 `cafe-launcher-downloads-stats`（绑定 `STATS`），按 UTC 日期、路由、版本、文件、方法、来源和状态码聚合。每个请求以原子 UPSERT 增加请求数、声明响应字节和响应头处理耗时总和；不保存逐用户记录。
 
-`GET /admin/stats` 返回近 30 个 UTC 自然日的总量和最多 500 条分类记录，必须携带 ADMIN_TOKEN。本机运行 `pwsh ./scripts/Get-MirrorStatistics.ps1` 可直接查询，无需复制令牌；加 `-SummaryOnly` 只看汇总。更多查询见 `queries/traffic.sql`：
+`GET /admin/stats` 返回近 30 个 UTC 自然日的总量、最多 500 条分类记录，以及按版本和文件聚合的完成下载量（`fileDownloads`，最多 200 项），必须携带 ADMIN_TOKEN。完成下载指一次完整的 `GET` 200 响应，包含边缘缓存命中；`Range` 206、`HEAD`、304 和错误响应不计入，避免断点续传把一次下载拆成多次。本机运行 `pwsh ./scripts/Get-MirrorStatistics.ps1` 可直接查询，无需复制令牌；加 `-SummaryOnly` 只看汇总。更多查询见 `queries/traffic.sql`：
 
 ```powershell
 npx wrangler d1 execute cafe-launcher-downloads-stats --remote --command "SELECT tag, file, SUM(requests) AS requests, SUM(response_bytes) AS declared_bytes FROM traffic_daily WHERE route = 'download' GROUP BY tag, file;"
@@ -78,6 +79,8 @@ pwsh ./scripts/Invoke-MirrorSync.ps1 -Batches 4
 ```
 
 该脚本保持请求连接直到每批完成；不要改成 HTTP 响应后仅由 `waitUntil()` 继续下载大文件。首次同步通常需要多批，可查看 `/admin/status`；Cron 会自动接续。Cron 配置部署后可能需要数分钟传播。
+
+也可以直接打开 `https://download.cafe-launcher.saibamidori.com/admin` 使用管理面板：页面本身无需登录，填入 `ADMIN_TOKEN` 后可查看同步状态、触发一轮同步并查看 30 天统计。令牌只保存在当前标签页的 `sessionStorage`，不会进入 URL，关闭标签页即失效；页面由 Worker 同源返回，接口调用不涉及 CORS。
 
 服务与 R2 位于独立项目；本次不修改启动器的更新检查、下载器或发布流程。启动器仍使用原 GitHub 地址，接入本镜像需要另行修改下载器。网站和浏览器可直接使用这里的镜像地址。
 

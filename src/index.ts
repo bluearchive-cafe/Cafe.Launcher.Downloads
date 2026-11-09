@@ -1,3 +1,4 @@
+import { ADMIN_PAGE } from './adminPage';
 import { CATALOG_KEY, IMMUTABLE, STATUS_KEY, downloadPath, objectKey, parseDownloadPath, readJson, releaseKey, type MirrorRelease } from './releases';
 import { synchronize } from './sync';
 import { recordRequest, readStatistics } from './statistics';
@@ -48,6 +49,13 @@ export default {
 async function route(request: Request, env: Env, ctx: ExecutionContext, audit: Audit): Promise<Response> {
   const url = new URL(request.url);
   if (url.search) return errorResponse(400, 'Query parameters are not supported');
+  if (url.pathname === '/admin' || url.pathname === '/admin/') {
+    audit.route = 'admin_page';
+    if (!['GET', 'HEAD'].includes(request.method)) {
+      return errorResponse(405, 'Only GET and HEAD are allowed', { Allow: 'GET, HEAD' });
+    }
+    return adminPage();
+  }
   if (url.pathname.startsWith('/admin/')) {
     audit.route = 'admin';
     if (!authorized(request, env.ADMIN_TOKEN)) return errorResponse(401, 'Administrator credentials required');
@@ -195,6 +203,17 @@ function conditions(request: Request, etag: string, modified: Date): number | nu
 
 function json(value: unknown, status = 200): Response {
   return Response.json(value, { status, headers: { 'Cache-Control': 'no-store' } });
+}
+
+function adminPage(): Response {
+  return new Response(ADMIN_PAGE, {
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-store',
+      'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+      'X-Frame-Options': 'DENY',
+    },
+  });
 }
 
 function errorResponse(status: number, message: string, extra: Record<string, string> = {}): Response {

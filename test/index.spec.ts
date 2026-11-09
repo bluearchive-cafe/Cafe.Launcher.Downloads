@@ -286,6 +286,18 @@ describe('download gateway', () => {
     expect((await call('/admin/status', { headers: { Authorization: 'Bearer test-administrator-token' } })).response.status).toBe(200);
   });
 
+  it('serves the management page without credentials while JSON admin routes stay protected', async () => {
+    const page = await call('/admin');
+    expect(page.response.status).toBe(200);
+    expect(page.response.headers.get('Content-Type')).toContain('text/html');
+    expect(page.response.headers.get('Content-Security-Policy')).toContain("connect-src 'self'");
+    expect(page.text).toContain('Cafe Launcher 下载镜像');
+    expect((await call('/admin/')).response.status).toBe(200);
+    expect((await call('/admin', { method: 'POST' })).response.status).toBe(405);
+    expect((await call('/admin/status')).response.status).toBe(401);
+    expect((await call('/admin/stats')).response.status).toBe(401);
+  });
+
   it('rejects non-ASCII credentials with matching character length without throwing', async () => {
     const token = 'é'.repeat('test-administrator-token'.length);
     expect((await call('/admin/status', { headers: { Authorization: `Bearer ${token}` } })).response.status).toBe(401);
@@ -306,6 +318,20 @@ describe('download gateway', () => {
     const rows = JSON.parse(stats.text).rows.filter((row: { route: string }) => row.route === 'download');
     expect(rows.reduce((sum: number, row: { requests: number }) => sum + row.requests, 0)).toBe(2);
     expect(rows.reduce((sum: number, row: { declaredResponseBytes: number }) => sum + row.declaredResponseBytes, 0)).toBe(20);
+  });
+
+  it('counts completed full downloads per file and excludes partial or metadata requests', async () => {
+    await seed();
+    await call(downloadPath(tag, setup));
+    await call(downloadPath(tag, setup));
+    await call(downloadPath(tag, setup), { method: 'HEAD' });
+    await call(downloadPath(tag, setup), { headers: { Range: 'bytes=0-4' } });
+    const stats = await call('/admin/stats', { headers: { Authorization: 'Bearer test-administrator-token' } });
+    const payload = JSON.parse(stats.text);
+    expect(payload.downloadMetric).toContain('GET 200');
+    expect(payload.fileDownloads.files).toEqual([
+      { tag, file: setup, downloads: 2, declaredResponseBytes: 20 },
+    ]);
   });
 
   it('returns only completed releases and public download URLs', async () => {
