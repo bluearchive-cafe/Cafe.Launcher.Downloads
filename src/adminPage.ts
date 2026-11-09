@@ -1,5 +1,5 @@
 /**
- * Self-contained administrator console served at `/admin`. It is a static shell:
+ * Self-contained administrator console served at `/v1/admin`. It is a static shell:
  * the page itself holds no credentials, and every data request carries the
  * operator-supplied ADMIN_TOKEN from sessionStorage.
  *
@@ -354,8 +354,8 @@ export const ADMIN_PAGE = `<!doctype html>
     }
     showMessage('请求失败：' + (error && error.message ? error.message : '未知错误'), 'err');
   }
-  function loadStatus() { return api('/admin/status').then(renderStatus); }
-  function loadStats() { return api('/admin/stats').then(renderStats); }
+  function loadStatus() { return api('/v1/admin/status').then(renderStatus); }
+  function loadStats() { return api('/v1/admin/stats').then(renderStats); }
   function refreshAll() {
     if (!token) { showMessage('输入 ADMIN_TOKEN 后连接。', 'warn'); return Promise.resolve(); }
     return Promise.all([loadStatus(), loadStats()]).then(function () {
@@ -367,7 +367,7 @@ export const ADMIN_PAGE = `<!doctype html>
     var button = byId('sync');
     button.disabled = true;
     showMessage('正在执行一轮同步，最多等待数分钟…', '');
-    api('/admin/sync', { method: 'POST' }).then(function (result) {
+    api('/v1/admin/sync', { method: 'POST' }).then(function (result) {
       var errors = result && Array.isArray(result.errors) ? result.errors.length : 0;
       var pending = result && Array.isArray(result.pending) ? result.pending.length : 0;
       showMessage('同步完成：上传 ' + formatNumber(result && result.uploaded) + ' 个文件，待处理 ' +

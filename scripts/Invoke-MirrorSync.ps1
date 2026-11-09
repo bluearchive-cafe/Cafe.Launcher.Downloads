@@ -6,14 +6,14 @@ $tokenPath = Join-Path $projectDirectory '.secrets/admin-token'
 if (-not (Test-Path -LiteralPath $tokenPath)) { throw 'Missing .secrets/admin-token. Configure the ADMIN_TOKEN Wrangler secret and save its local copy there.' }
 $token = (Get-Content -LiteralPath $tokenPath -Raw).Trim()
 $headers = @{ Authorization = "Bearer $token" }
-$baseUrl = 'https://cafe-launcher-downloads.gytxtx.workers.dev'
+$baseUrl = 'https://download.cafe-launcher.saibamidori.com'
 for ($batch = 1; $batch -le $Batches; $batch++) {
     try {
-        $result = Invoke-RestMethod -Uri "$baseUrl/admin/sync" -Method Post -Headers $headers -TimeoutSec 540
+        $result = Invoke-RestMethod -Uri "$baseUrl/v1/admin/sync" -Method Post -Headers $headers -TimeoutSec 540
     } catch {
         # Fetch the sanitized status instead of printing HTTP request objects with credentials.
         try {
-            $status = Invoke-RestMethod -Uri "$baseUrl/admin/status" -Headers $headers -TimeoutSec 30
+            $status = Invoke-RestMethod -Uri "$baseUrl/v1/admin/status" -Headers $headers -TimeoutSec 30
             $status | ConvertTo-Json -Depth 8 | Write-Output
         } catch { Write-Warning 'Could not read sync status.' }
         throw 'Mirror batch failed. Check the sanitized status above or Worker logs; the next cron will retry.'

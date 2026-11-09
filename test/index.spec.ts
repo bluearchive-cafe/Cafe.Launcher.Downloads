@@ -48,7 +48,7 @@ async function fixture() {
   const network = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
     const url = String(input);
     if (url === `https://api.github.com/repos/${REPOSITORY}/releases?per_page=20`) return Response.json([release]);
-    if (url === 'https://api-cafe-launcher.saibamidori.com/api/v2/launcher/releases') {
+    if (url === 'https://api.cafe-launcher.saibamidori.com/api/v2/launcher/releases') {
       return Response.json([{
         version: release.tag_name.slice(1), releaseDate: release.published_at,
         files: release.assets.map(asset => ({ name: asset.name, url: asset.browser_download_url, size: asset.size, checksum: asset.digest })),
@@ -334,11 +334,28 @@ describe('download gateway', () => {
     ]);
   });
 
+  it('does not serve the release catalog at the interface root', async () => {
+    await seed();
+    expect((await call('/')).response.status).toBe(404);
+    expect((await call('/', { method: 'HEAD' })).response.status).toBe(404);
+  });
+
+  it('serves the same interface under the /v1 version prefix', async () => {
+    await seed();
+    const catalog = await call('/v1/releases');
+    expect(catalog.response.status).toBe(200);
+    expect(JSON.parse(catalog.text).releases[0].files[0].url).toBe(downloadPath(tag, setup));
+    expect((await call(`/v1/downloads/${tag}/${setup}`)).response.status).toBe(200);
+    expect((await call('/v1/admin/status', { headers: { Authorization: 'Bearer test-administrator-token' } })).response.status).toBe(200);
+    expect((await call('/v1')).response.status).toBe(404);
+  });
+
   it('returns only completed releases and public download URLs', async () => {
     await seed();
     const { text } = await call('/releases');
     const catalog = JSON.parse(text);
     expect(catalog.releases[0].files[0].url).toBe(downloadPath(tag, setup));
+    expect(catalog.releases[0].files[0].url).toContain('/v1/downloads/');
     expect(text).not.toContain('_state/');
   });
 
@@ -352,7 +369,10 @@ describe('download gateway', () => {
 });
 
 describe('input boundaries', () => {
-  it.each(['/downloads/v1.2.3/%2e%2e%2fsecret', '/downloads/v1.2.3/%ZZ', '/downloads/main/SHA256SUMS', '/downloads/v1.2.3/Cafe.Launcher_v9.9.9_setup.exe'])('rejects invalid paths %s', path => {
+  it('accepts the version prefix in download paths', () => {
+    expect(parseDownloadPath(`/v1/downloads/${tag}/${setup}`)).toEqual({ tag, name: setup });
+  });
+  it.each(['/downloads/v1.2.3/%2e%2e%2fsecret', '/downloads/v1.2.3/%ZZ', '/downloads/main/SHA256SUMS', '/downloads/v1.2.3/Cafe.Launcher_v9.9.9_setup.exe', '/v1/downloads/v1.2.3/%2e%2e%2fsecret'])('rejects invalid paths %s', path => {
     expect(parseDownloadPath(path)).toBeNull();
   });
   it.each(['bytes=-0', 'bytes=10-', 'bytes=4-1', 'bytes=9007199254740992-', 'items=0-1'])('rejects invalid ranges %s', range => {

@@ -175,7 +175,7 @@ async function fetchReleases(env: Env): Promise<{ releases: GitHubRelease[]; sou
   } catch {
     console.warn({ event: 'metadata_fallback', source: 'launcher-api' });
   }
-  const response = await fetch('https://api-cafe-launcher.saibamidori.com/api/v2/launcher/releases', {
+  const response = await fetch('https://api.cafe-launcher.saibamidori.com/api/v2/launcher/releases', {
     headers: { Accept: 'application/json', 'User-Agent': 'CafeLauncherDownloads/1.0' },
     redirect: 'manual', signal: AbortSignal.timeout(20_000),
   });

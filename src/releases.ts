@@ -4,6 +4,7 @@ export const MAX_MANIFEST_BYTES = 64 * 1024;
 export const IMMUTABLE = 'public, max-age=31536000, immutable';
 export const CATALOG_KEY = '_state/catalog.json';
 export const STATUS_KEY = '_state/sync.json';
+export const API_PREFIX = '/v1';
 
 const TAG = /^v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 const SUFFIXES = ['setup.exe', 'win-x64.zip', 'osx-arm64.zip', 'linux-x64.tar.gz', 'linux-x64.AppImage', 'linux-x64.deb', 'linux-x64.rpm', 'linux-x64.pkg.tar.zst'];
@@ -53,11 +54,11 @@ export function validName(tag: string, name: string): boolean {
 export function releaseKey(tag: string): string { return `_state/releases/${tag}.json`; }
 export function objectKey(tag: string, name: string): string { return `releases/${tag}/${name}`; }
 export function downloadPath(tag: string, name: string): string {
-  return `/downloads/${encodeURIComponent(tag)}/${encodeURIComponent(name)}`;
+  return `${API_PREFIX}/downloads/${encodeURIComponent(tag)}/${encodeURIComponent(name)}`;
 }
 
 export function parseDownloadPath(path: string): { tag: string; name: string } | null {
-  const match = /^\/downloads\/([^/]+)\/([^/]+)$/.exec(path);
+  const match = new RegExp(`^(?:${API_PREFIX})?/downloads/([^/]+)/([^/]+)$`).exec(path);
   if (!match) return null;
   try {
     const tag = decodeURIComponent(match[1]);

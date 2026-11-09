@@ -1,64 +1,34 @@
 # Cafe.Launcher.Downloads
 
-独立的 Cafe Launcher 下载 Worker，部署名为 `cafe-launcher-downloads`。GitHub Release 仍是发布来源；无需修改启动器仓库的 `release.ps1` 或 GitHub Actions。
+Cafe Launcher 的 Cloudflare Worker 下载镜像与 OpenAPI 服务，部署名 `cafe-launcher-downloads`，生产域名 `https://download.cafe-launcher.saibamidori.com`。
 
-## 运行方式
+Worker 从 GitHub Releases 同步最近若干版本的资产到 R2，只在 `SHA256SUMS` 校验通过后对外提供不可变下载，并用 D1 记录按文件与按日的请求统计。接口由 [chanfana](https://github.com/cloudflare/chanfana) 与 [Hono](https://github.com/honojs/hono) 注册，OpenAPI 3.1 文档位于 `/docs`，原始 schema 位于 `/openapi.json`。
 
-- Worker：`cafe-launcher-downloads`，对外域名 `https://download.cafe-launcher.saibamidori.com`，同时保留 `https://cafe-launcher-downloads.gytxtx.workers.dev`。
-- 私有 R2：`cafe-launcher-releases`，绑定名 `RELEASES`。`r2.dev` 与桶的公开自定义域名均关闭，对外只经 Worker 域名访问。
-- 固定源仓库：`bluearchive-cafe/Cafe.Launcher.Avalonia`，不接受任意回源 URL。
-- 每 10 分钟检查 GitHub 列表前 20 项中的最近 3 个有效、非草稿 release（包含预发布）。不是全部历史版本扫描；已镜像的旧版本继续保留，不自动删除。
-- 每轮最多复制 2 个非清单资产，优先 Windows 安装器、Windows ZIP；清单和元数据不占该额度。新版本有 8 个包时通常需 4 轮，约 30–40 分钟才齐备。可用管理脚本提前同步。
-- 单资产最多 512 MiB，清单最多 64 KiB；支持当前及旧 `Cafe.Launcher.Avalonia_` 前缀，以及 Homebrew Cask。
-- 只同步 uploaded 资产。SHA256SUMS 必须覆盖全部资产且每个条目均存在，防止抓取正在上传中的 release。GitHub digest 如存在，必须与清单相符。
-- 通过 R2 `put({sha256})` 校验流式上传，全部文件通过后才生成该版本的就绪元数据。未就绪文件不对外提供。
-- 同步失败下轮重试，条件写入租约防止同步任务重叠；单文件回源超时 120 秒，任务在预算用完后停止开始新传输。R2 文件元数据包含 SHA-256；直接使用 GitHub API 时同时记录源资产 ID。
-- 已镜像版本视为不可变快照。发现同 tag 的资产被替换时报告冲突，不覆盖旧文件；需要维护者核实后另发版本。源版本被撤回后，已有镜像不会自动删除。
-- GitHub API 未配置令牌时使用公开访问；网络失败或非成功响应时，自动回退到产品现有的 `/api/v2/launcher/releases` 元数据代理，文件和清单仍从 GitHub 下载。代理不提供 GitHub 资产 ID 时以大小和 SHA-256 绑定内容，不向代理发送 GitHub 凭据。也可运行 `npx wrangler secret put GITHUB_TOKEN`，仅需读取公开仓库。令牌仅发送至 GitHub API，不发送到资产重定向地址。
+> 独立的 `Cafe.Launcher.OpenAPI` 仓库已删除。OpenAPI 迁移在本仓库就地完成，Worker 名称与自定义域名保持不变。
 
-## HTTP 接口
+## 接口
 
 | 接口 | 方法 | 用途 |
 | --- | --- | --- |
-| `/health` | GET / HEAD | 进程健康检查，不表示版本已同步 |
-| `/`、`/releases` | GET / HEAD | 仅列出完成校验的镜像版本，下载 URL 为相对路径 |
-| `/downloads/<tag>/<asset-name>` | GET / HEAD | 下载就绪文件，支持单段 Range、ETag、If-Range、条件请求 |
-| `/admin` | GET / HEAD | 管理面板页面，只含界面不含凭据；页面内输入 ADMIN_TOKEN 后同源调用下三个接口 |
-| `/admin/status` | GET / HEAD | 查看最后一次同步状态，需要管理员 Bearer 令牌 |
-| `/admin/stats` | GET / HEAD | 查询近 30 个 UTC 自然日的聚合统计，需要管理员 Bearer 令牌 |
-| `/admin/sync` | POST | 等待一轮有界同步完成，需要管理员 Bearer 令牌 |
+| `/v1/health` | GET / HEAD | 进程健康检查，不表示版本已同步 |
+| `/v1/releases` | GET / HEAD | 仅列出完成校验的镜像版本，下载 URL 为 `/v1/downloads/...` 相对路径 |
+| `/v1/downloads/<tag>/<asset-name>` | GET / HEAD | 下载就绪文件，支持单段 Range、ETag、If-Range 与条件请求 |
+| `/v1/admin` | GET / HEAD | 管理面板页面，只含界面不含凭据 |
+| `/v1/admin/status` | GET / HEAD | 查看最后一次同步状态，需要管理员 Bearer 令牌 |
+| `/v1/admin/stats` | GET / HEAD | 查询近 30 个 UTC 自然日的聚合统计，需要管理员 Bearer 令牌 |
+| `/v1/admin/sync` | POST | 等待一轮有界同步完成，需要管理员 Bearer 令牌 |
 
-例：`/downloads/v1.3.1/Cafe.Launcher_v1.3.1_setup.exe`。尚未就绪的版本返回 404，不临时代理未校验文件；可以使用原始 GitHub Release 下载。
+`/v1` 是当前唯一版本前缀；去掉前缀的旧路径仅作为已部署客户端的兼容别名。根 `/` 与 `/v1` 不提供接口，均返回 404。所有接口拒绝查询参数并返回 400。除管理接口与文档端点外的公开路由，在配置 `DOWNLOAD_TOKEN` 后也会要求 Bearer 鉴权。
 
-查询参数一律拒绝，不通过 URL 携带令牌。未提供上传、删除、列表桶内部文件的接口。
+## 行为契约
 
-## 访问控制和缓存
+- R2 私有桶 `cafe-launcher-releases`（绑定 `RELEASES`）保存镜像资产、版本目录与同步状态；D1 统计库 `cafe-launcher-downloads-stats`（绑定 `STATS`）保存按日的聚合计数。
+- Cron 每 10 分钟同步一次：读取源仓库最近 `SYNC_RELEASE_COUNT` 个 release（默认 3），每轮最多复制 `SYNC_ASSET_LIMIT` 个资产（默认 2），单轮有时间上限。
+- 资产先对照 release 的 `SHA256SUMS` 校验，清单与资产集合不一致时整版跳过；已发布的 tag 保持不可变，资产变化或大小不符需要人工处理。
+- 下载路由按 IP 做近似限流（约每分钟 120 次），多段 Range 不支持；可选的 `DOWNLOAD_TOKEN` 让所有公开路由强制 Bearer 鉴权，管理接口始终使用独立的 `ADMIN_TOKEN`。
+- 请求日志与统计不记录 IP、凭据、查询字符串或用户标识。GitHub 元数据接口失败或被限流时，同步回退到 `https://api.cafe-launcher.saibamidori.com/api/v2/launcher/releases`；资产地址与校验值仍按固定仓库校验。
 
-默认面向公开发行包，匿名可读。只允许 GET/HEAD、合法 SemVer tag、固定资产名和已完成的版本元数据。每个客户端 IP 每分钟约 120 次请求，命中缓存同样检查限流；这是每个 Cloudflare 节点的近似防滥用限制，不是全球精确配额，共享出口用户共用额度。IP 只参与限流，不写入自定义日志和统计。
-
-如需要私有下载，设置独立的 `DOWNLOAD_TOKEN` secret。之后所有公开路由也必须提交 `Authorization: Bearer ...`，响应为 `private, no-store`。管理接口始终使用另一枚 `ADMIN_TOKEN`，不接受下载令牌。公开客户端不应内置长期密钥。
-
-文件使用带 SHA-256 的稳定 ETag 和版本路径。完整 GET 使用 Cloudflare Cache API，缓存键包括摘要；Range 直接从 R2 读取，不把 206 写缓存。Cache API 是节点本地缓存，不能保证文件始终在边缘。私有下载模式不新增缓存，读取既有缓存前仍检查鉴权和限流。
-
-## 请求日志和流量统计
-
-Workers Observability 中启用结构化日志，head sampling 为 1，关闭自动 invocation logs；显式日志不记录 IP、Authorization、查询字符串、User-Agent 或 GitHub 临时签名 URL。Cloudflare 自身仍按其平台政策处理请求和运行日志。
-
-- `download_request`：route / method / tag / file / status / source / responseBytes / durationMs。
-- `sync_asset`：已校验复制的 tag / file / bytes / sha256。
-- `sync_complete`：一轮同步的上传量、就绪/等待版本和错误。
-
-统计保存到独立 D1 数据库 `cafe-launcher-downloads-stats`（绑定 `STATS`），按 UTC 日期、路由、版本、文件、方法、来源和状态码聚合。每个请求以原子 UPSERT 增加请求数、声明响应字节和响应头处理耗时总和；不保存逐用户记录。
-
-`GET /admin/stats` 返回近 30 个 UTC 自然日的总量、最多 500 条分类记录，以及按版本和文件聚合的完成下载量（`fileDownloads`，最多 200 项），必须携带 ADMIN_TOKEN。完成下载指一次完整的 `GET` 200 响应，包含边缘缓存命中；`Range` 206、`HEAD`、304 和错误响应不计入，避免断点续传把一次下载拆成多次。本机运行 `pwsh ./scripts/Get-MirrorStatistics.ps1` 可直接查询，无需复制令牌；加 `-SummaryOnly` 只看汇总。更多查询见 `queries/traffic.sql`：
-
-```powershell
-npx wrangler d1 execute cafe-launcher-downloads-stats --remote --command "SELECT tag, file, SUM(requests) AS requests, SUM(response_bytes) AS declared_bytes FROM traffic_daily WHERE route = 'download' GROUP BY tag, file;"
-```
-
-下载 GET 200/206 的 Content-Length 计入声明响应字节；HEAD、304、错误为 0。请求数不是完整下载次数，声明响应大小不是确认送达客户端的字节数，耗时不包括整个文件传输。统计写入在短时 waitUntil 中完成，异常会记录 `statistics_write_failed`，不使下载失败；配额耗尽、请求终止等情形可能漏计。日志和统计不能作为精确计费或完整安全审计账本。D1 按日汇总目前不自动删除，日志保留时间由 Cloudflare 账户计划决定。
-
-## 本地开发与部署
+## 本地开发
 
 ```powershell
 npm ci
@@ -67,23 +37,17 @@ npm run typecheck
 npm test
 npx wrangler deploy --dry-run
 npx wrangler d1 migrations apply cafe-launcher-downloads-stats --remote
-npm run deploy
+npm run dev
 ```
 
-测试在 workerd 中运行，R2/缓存使用本地隔离存储，网络回源由测试替身响应，不接触生产桶。
+复制 `.dev.vars.example` 为 `.dev.vars` 配置本地令牌。测试在 workerd 中运行，R2 与缓存使用本地隔离存储。
 
-`ADMIN_TOKEN` 是 Wrangler secret。部署时生成的本地副本保存在 `.secrets/admin-token`（已忽略，不要提交或发送到聊天）。手动同步：
+## 部署
 
-```powershell
-pwsh ./scripts/Invoke-MirrorSync.ps1 -Batches 4
-```
+`ADMIN_TOKEN`、`DOWNLOAD_TOKEN` 与可选的 `GITHUB_TOKEN` 使用 `wrangler secret put` 配置，不写入仓库。部署到 Cloudflare 后，管理脚本 `scripts/Invoke-MirrorSync.ps1` 与 `scripts/Get-MirrorStatistics.ps1` 默认访问 `https://download.cafe-launcher.saibamidori.com`，并从 `.secrets/admin-token` 读取本地令牌副本（已忽略，不要提交）。
 
-该脚本保持请求连接直到每批完成；不要改成 HTTP 响应后仅由 `waitUntil()` 继续下载大文件。首次同步通常需要多批，可查看 `/admin/status`；Cron 会自动接续。Cron 配置部署后可能需要数分钟传播。
+`wrangler.jsonc` 中的 custom domain、R2、D1、限流与 Cron 绑定随部署保持绑定。
 
-也可以直接打开 `https://download.cafe-launcher.saibamidori.com/admin` 使用管理面板：页面本身无需登录，填入 `ADMIN_TOKEN` 后可查看同步状态、触发一轮同步并查看 30 天统计。令牌只保存在当前标签页的 `sessionStorage`，不会进入 URL，关闭标签页即失效；页面由 Worker 同源返回，接口调用不涉及 CORS。
+## 源代码
 
-服务与 R2 位于独立项目；本次不修改启动器的更新检查、下载器或发布流程。启动器仍使用原 GitHub 地址，接入本镜像需要另行修改下载器。网站和浏览器可直接使用这里的镜像地址。
-
-
-
-
+本服务源代码已公开，并采用 [MIT License](./LICENSE)。桌面启动器源码位于 [bluearchive-cafe/Cafe.Launcher.Avalonia](https://github.com/bluearchive-cafe/Cafe.Launcher.Avalonia)。
